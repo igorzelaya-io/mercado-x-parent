@@ -1,0 +1,189 @@
+name: Maven CI
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: Publish the Maven artifact after all checks pass
+        required: false
+        type: boolean
+        default: true
+      sonar_host_url:
+        description: SonarQube Server URL; leave empty for SonarQube Cloud
+        required: false
+        type: string
+        default: ''
+      sonar_organization:
+        description: SonarQube Cloud organization key; leave empty for SonarQube Server
+        required: false
+        type: string
+        default: ''
+      sonar_project_key:
+        description: Sonar project key; defaults to owner_repository
+        required: false
+        type: string
+        default: ''
+    secrets:
+      PACKAGES_TOKEN:
+        required: false
+      SONAR_TOKEN:
+        description: Token with Execute Analysis permission
+        required: false
+  workflow_dispatch:
+  pull_request:
+  push:
+
+concurrency:
+  group: maven-ci-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  JAVA_VERSION: '17'
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: PACKAGES_TOKEN
+      - name: Run unit tests
+        run: >-
+          mvn -B -ntp
+          -Dtest='!*IntTest,!*IntegrationTest'
+          -Dsurefire.failIfNoSpecifiedTests=false
+          test
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: PACKAGES_TOKEN
+      - name: Run integration tests
+        run: >-
+          mvn -B -ntp
+          -Dtest='*IntTest,*IntegrationTest'
+          -Dsurefire.failIfNoSpecifiedTests=false
+          test
+      - name: Upload integration-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  quality:
+    name: Coverage and Sonar analysis
+    needs: [unit-tests, integration-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ inputs.sonar_host_url || vars.SONAR_HOST_URL }}
+      SONAR_ORGANIZATION: ${{ inputs.sonar_organization || vars.SONAR_ORGANIZATION }}
+      SONAR_PROJECT_KEY: ${{ inputs.sonar_project_key || vars.SONAR_PROJECT_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: PACKAGES_TOKEN
+      - name: Generate JaCoCo coverage report
+        run: >-
+          mvn -B -ntp clean
+          org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent
+          test
+          org.jacoco:jacoco-maven-plugin:0.8.13:report
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-report
+          path: target/site/jacoco/
+          if-no-files-found: error
+      - name: Analyze with SonarQube
+        if: env.SONAR_TOKEN != ''
+        shell: bash
+        run: |
+          project_key="${SONAR_PROJECT_KEY:-${GITHUB_REPOSITORY/\//_}}"
+          sonar_args=(
+            "-Dsonar.projectKey=${project_key}"
+            "-Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml"
+            "-Dsonar.qualitygate.wait=true"
+          )
+          if [[ -n "${SONAR_HOST_URL}" ]]; then
+            sonar_args+=("-Dsonar.host.url=${SONAR_HOST_URL}")
+          fi
+          if [[ -n "${SONAR_ORGANIZATION}" ]]; then
+            sonar_args+=("-Dsonar.organization=${SONAR_ORGANIZATION}")
+          fi
+          mvn -B -ntp org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar "${sonar_args[@]}"
+      - name: Explain skipped Sonar analysis
+        if: env.SONAR_TOKEN == ''
+        run: echo "JaCoCo coverage generated; Sonar analysis skipped because SONAR_TOKEN is not configured."
+
+  package:
+    name: Package
+    needs: [unit-tests, integration-tests, quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: PACKAGES_TOKEN
+      - name: Build package
+        run: mvn -B -ntp package -DskipTests
+      - name: Publish Maven artifact
+        if: >-
+          (inputs.publish == true || inputs.publish == '') && github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' ||
+          startsWith(github.ref, 'refs/tags/v'))
+        run: mvn -B -ntp deploy -DskipTests
