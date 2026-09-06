@@ -45,8 +45,65 @@ env:
   JAVA_VERSION: '17'
 
 jobs:
+  release-validation:
+    name: Validate release coordinates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
+    steps:
+      - name: Skip validation outside release tags
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "Immutable release validation only applies to v* tags."
+      - uses: actions/checkout@v4
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      - uses: actions/setup-java@v4
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: PACKAGES_TOKEN
+      - name: Reject mutable or snapshot-based releases
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="${GITHUB_REF_NAME#v}"
+          project_version="$(mvn -B -ntp -U -Dstyle.color=never help:evaluate \
+            -Dexpression=project.version -q -DforceStdout | tr -d '\r')"
+          parent_version="$(mvn -B -ntp -U -Dstyle.color=never help:evaluate \
+            -Dexpression=project.parent.version -q -DforceStdout | tr -d '\r')"
+
+          if [[ "${project_version}" != "${release_version}" ]]; then
+            echo "Release tag v${release_version} must match Maven project version ${project_version}."
+            exit 1
+          fi
+          if [[ "${project_version}" == *-SNAPSHOT ]]; then
+            echo "Release project version cannot be a SNAPSHOT: ${project_version}."
+            exit 1
+          fi
+          if [[ "${parent_version}" == *-SNAPSHOT ]]; then
+            echo "Release parent version cannot be a SNAPSHOT: ${parent_version}."
+            exit 1
+          fi
+
+          mkdir -p target
+          mvn -B -ntp -U dependency:list \
+            -DincludeGroupIds=hn.shadowcore \
+            -DoutputFile=target/internal-dependencies.txt \
+            -DappendOutput=false
+          if grep -q -- '-SNAPSHOT' target/internal-dependencies.txt; then
+            echo "Release depends on mutable MercadoX SNAPSHOT artifacts:"
+            grep -- '-SNAPSHOT' target/internal-dependencies.txt
+            exit 1
+          fi
+
   unit-tests:
     name: Unit tests
+    needs: release-validation
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -63,7 +120,7 @@ jobs:
           server-password: PACKAGES_TOKEN
       - name: Run unit tests
         run: >-
-          mvn -B -ntp
+          mvn -B -ntp -U
           -Dtest='!*IntTest,!*IntegrationTest'
           -Dsurefire.failIfNoSpecifiedTests=false
           test
@@ -77,6 +134,7 @@ jobs:
 
   integration-tests:
     name: Integration tests
+    needs: release-validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -93,7 +151,7 @@ jobs:
           server-password: PACKAGES_TOKEN
       - name: Run integration tests
         run: >-
-          mvn -B -ntp
+          mvn -B -ntp -U
           -Dtest='*IntTest,*IntegrationTest'
           -Dsurefire.failIfNoSpecifiedTests=false
           test
@@ -130,7 +188,7 @@ jobs:
           server-password: PACKAGES_TOKEN
       - name: Generate JaCoCo coverage report
         run: >-
-          mvn -B -ntp clean
+          mvn -B -ntp -U clean
           org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent
           test
           org.jacoco:jacoco-maven-plugin:0.8.13:report
@@ -157,7 +215,7 @@ jobs:
           if [[ -n "${SONAR_ORGANIZATION}" ]]; then
             sonar_args+=("-Dsonar.organization=${SONAR_ORGANIZATION}")
           fi
-          mvn -B -ntp org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar "${sonar_args[@]}"
+          mvn -B -ntp -U org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar "${sonar_args[@]}"
       - name: Explain skipped Sonar analysis
         if: env.SONAR_TOKEN == ''
         run: echo "JaCoCo coverage generated; Sonar analysis skipped because SONAR_TOKEN is not configured."
@@ -180,10 +238,23 @@ jobs:
           server-username: GITHUB_ACTOR
           server-password: PACKAGES_TOKEN
       - name: Build package
-        run: mvn -B -ntp package -DskipTests
+        run: mvn -B -ntp -U package -DskipTests
       - name: Publish Maven artifact
         if: >-
           (inputs.publish == true || inputs.publish == '') && github.event_name == 'push' &&
-          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' ||
+          (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/master' ||
           startsWith(github.ref, 'refs/tags/v'))
-        run: mvn -B -ntp deploy -DskipTests
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version="$(mvn -B -ntp -U -Dstyle.color=never help:evaluate \
+            -Dexpression=project.version -q -DforceStdout | tr -d '\r')"
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            mvn -B -ntp -U deploy -DskipTests
+          elif [[ "${project_version}" == *-SNAPSHOT ]]; then
+            mvn -B -ntp -U deploy -DskipTests
+          else
+            echo "Not republishing immutable version ${project_version} from a branch."
+          fi
