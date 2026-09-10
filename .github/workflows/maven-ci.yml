@@ -38,6 +38,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  checks: read
   contents: read
   packages: write
 
@@ -174,6 +175,8 @@ jobs:
       SONAR_HOST_URL: ${{ inputs.sonar_host_url || vars.SONAR_HOST_URL }}
       SONAR_ORGANIZATION: ${{ inputs.sonar_organization || vars.SONAR_ORGANIZATION }}
       SONAR_PROJECT_KEY: ${{ inputs.sonar_project_key || vars.SONAR_PROJECT_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+      ANALYSIS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -208,7 +211,6 @@ jobs:
           sonar_args=(
             "-Dsonar.projectKey=${project_key}"
             "-Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml"
-            "-Dsonar.qualitygate.wait=false"
           )
           if [[ -n "${SONAR_HOST_URL}" ]]; then
             sonar_args+=("-Dsonar.host.url=${SONAR_HOST_URL}")
@@ -216,60 +218,54 @@ jobs:
           if [[ -n "${SONAR_ORGANIZATION}" ]]; then
             sonar_args+=("-Dsonar.organization=${SONAR_ORGANIZATION}")
           fi
-          mvn -B -ntp -U org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar "${sonar_args[@]}"
-
-          report_file="target/sonar/report-task.txt"
-          if [[ ! -s "${report_file}" ]]; then
-            echo "::error title=Sonar analysis failed::Scanner did not create ${report_file}."
-            exit 1
+          if [[ -n "${SONAR_HOST_URL}" && "${SONAR_HOST_URL}" != "https://sonarcloud.io" ]]; then
+            sonar_args+=("-Dsonar.qualitygate.wait=true")
+          else
+            sonar_args+=("-Dsonar.qualitygate.wait=false")
           fi
 
-          ce_task_url="$(awk -F= '$1 == "ceTaskUrl" { print substr($0, index($0, "=") + 1) }' "${report_file}" | tr -d '\r')"
-          if [[ -z "${ce_task_url}" ]]; then
-            echo "::error title=Sonar analysis failed::Scanner report does not contain ceTaskUrl."
-            exit 1
+          set +e
+          mvn -B -ntp -U org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar \
+            "${sonar_args[@]}" 2>&1 | tee target/sonar-scanner.log
+          scanner_status="${PIPESTATUS[0]}"
+          set -e
+          if [[ "${scanner_status}" -ne 0 ]]; then
+            scanner_error="$(grep -E '^\[ERROR\]|^ERROR ' target/sonar-scanner.log | tail -1 || true)"
+            echo "::error title=Sonar scanner failed::${scanner_error:-See the Analyze with SonarQube step log.}"
+            exit "${scanner_status}"
           fi
-
-          analysis_id=""
-          for attempt in {1..30}; do
-            if ! task_json="$(curl --fail --silent --show-error \
-                    --header "Authorization: Bearer ${SONAR_TOKEN}" "${ce_task_url}")"; then
-              echo "::error title=Sonar analysis failed::Could not read Sonar background-task status."
+      - name: Wait for SonarCloud quality gate
+        if: ${{ env.SONAR_TOKEN != '' && (env.SONAR_HOST_URL == '' || env.SONAR_HOST_URL == 'https://sonarcloud.io') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          checks_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${ANALYSIS_SHA}/check-runs?per_page=100"
+          for attempt in {1..60}; do
+            if ! checks_json="$(curl --fail --silent --show-error \
+                    --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+                    --header "Accept: application/vnd.github+json" \
+                    --header "X-GitHub-Api-Version: 2022-11-28" \
+                    "${checks_url}")"; then
+              echo "::error title=SonarCloud quality gate failed::Could not read GitHub check status."
               exit 1
             fi
-            task_status="$(jq -r '.task.status // "UNKNOWN"' <<< "${task_json}")"
-            case "${task_status}" in
-              SUCCESS)
-                analysis_id="$(jq -r '.task.analysisId // empty' <<< "${task_json}")"
-                break
-                ;;
-              FAILED|CANCELED)
-                echo "::error title=Sonar analysis failed::Background task finished with status ${task_status}."
-                exit 1
-                ;;
-            esac
+
+            check_count="$(jq '[.check_runs[] | select(.name == "SonarCloud Code Analysis")] | length' <<< "${checks_json}")"
+            pending_count="$(jq '[.check_runs[] | select(.name == "SonarCloud Code Analysis" and .status != "completed")] | length' <<< "${checks_json}")"
+            if [[ "${check_count}" -gt 0 && "${pending_count}" -eq 0 ]]; then
+              failed_checks="$(jq '[.check_runs[] | select(.name == "SonarCloud Code Analysis" and .conclusion != "success")] | length' <<< "${checks_json}")"
+              if [[ "${failed_checks}" -eq 0 ]]; then
+                echo "SonarCloud quality gate passed for ${ANALYSIS_SHA}."
+                exit 0
+              fi
+              check_summary="$(jq -r '[.check_runs[] | select(.name == "SonarCloud Code Analysis") | "\(.conclusion): \(.output.title // "No details")"] | join(", ")' <<< "${checks_json}")"
+              echo "::error title=SonarCloud quality gate failed::${check_summary}"
+              exit 1
+            fi
             sleep 2
           done
-
-          if [[ -z "${analysis_id}" ]]; then
-            echo "::error title=Sonar analysis timed out::Background task did not complete within 60 seconds."
-            exit 1
-          fi
-
-          server_url="$(awk -F= '$1 == "serverUrl" { print substr($0, index($0, "=") + 1) }' "${report_file}" | tr -d '\r')"
-          gate_url="${server_url}/api/qualitygates/project_status?analysisId=${analysis_id}"
-          if ! gate_json="$(curl --fail --silent --show-error \
-                  --header "Authorization: Bearer ${SONAR_TOKEN}" "${gate_url}")"; then
-            echo "::error title=Sonar quality gate failed::Could not read quality-gate status."
-            exit 1
-          fi
-          gate_status="$(jq -r '.projectStatus.status // "UNKNOWN"' <<< "${gate_json}")"
-          if [[ "${gate_status}" != "OK" ]]; then
-            failed_conditions="$(jq -r '[.projectStatus.conditions[]? | select(.status != "OK") | "\(.metricKey)=\(.actualValue) (threshold \(.errorThreshold))"] | join(", ")' <<< "${gate_json}")"
-            echo "::error title=Sonar quality gate failed::Status ${gate_status}. ${failed_conditions}"
-            exit 1
-          fi
-          echo "Sonar quality gate passed for analysis ${analysis_id}."
+          echo "::error title=SonarCloud quality gate timed out::No completed SonarCloud check was available within 120 seconds."
+          exit 1
       - name: Explain skipped Sonar analysis
         if: env.SONAR_TOKEN == ''
         run: echo "JaCoCo coverage generated; Sonar analysis skipped because SONAR_TOKEN is not configured."
