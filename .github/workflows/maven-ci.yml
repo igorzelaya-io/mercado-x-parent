@@ -203,11 +203,12 @@ jobs:
         if: env.SONAR_TOKEN != ''
         shell: bash
         run: |
+          set -euo pipefail
           project_key="${SONAR_PROJECT_KEY:-${GITHUB_REPOSITORY/\//_}}"
           sonar_args=(
             "-Dsonar.projectKey=${project_key}"
             "-Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml"
-            "-Dsonar.qualitygate.wait=true"
+            "-Dsonar.qualitygate.wait=false"
           )
           if [[ -n "${SONAR_HOST_URL}" ]]; then
             sonar_args+=("-Dsonar.host.url=${SONAR_HOST_URL}")
@@ -216,6 +217,57 @@ jobs:
             sonar_args+=("-Dsonar.organization=${SONAR_ORGANIZATION}")
           fi
           mvn -B -ntp -U org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar "${sonar_args[@]}"
+
+          report_file="target/sonar/report-task.txt"
+          if [[ ! -s "${report_file}" ]]; then
+            echo "::error title=Sonar analysis failed::Scanner did not create ${report_file}."
+            exit 1
+          fi
+
+          ce_task_url="$(awk -F= '$1 == "ceTaskUrl" { print substr($0, index($0, "=") + 1) }' "${report_file}" | tr -d '\r')"
+          if [[ -z "${ce_task_url}" ]]; then
+            echo "::error title=Sonar analysis failed::Scanner report does not contain ceTaskUrl."
+            exit 1
+          fi
+
+          analysis_id=""
+          for attempt in {1..30}; do
+            if ! task_json="$(curl --fail --silent --show-error --user "${SONAR_TOKEN}:" "${ce_task_url}")"; then
+              echo "::error title=Sonar analysis failed::Could not read Sonar background-task status."
+              exit 1
+            fi
+            task_status="$(jq -r '.task.status // "UNKNOWN"' <<< "${task_json}")"
+            case "${task_status}" in
+              SUCCESS)
+                analysis_id="$(jq -r '.task.analysisId // empty' <<< "${task_json}")"
+                break
+                ;;
+              FAILED|CANCELED)
+                echo "::error title=Sonar analysis failed::Background task finished with status ${task_status}."
+                exit 1
+                ;;
+            esac
+            sleep 2
+          done
+
+          if [[ -z "${analysis_id}" ]]; then
+            echo "::error title=Sonar analysis timed out::Background task did not complete within 60 seconds."
+            exit 1
+          fi
+
+          server_url="$(awk -F= '$1 == "serverUrl" { print substr($0, index($0, "=") + 1) }' "${report_file}" | tr -d '\r')"
+          gate_url="${server_url}/api/qualitygates/project_status?analysisId=${analysis_id}"
+          if ! gate_json="$(curl --fail --silent --show-error --user "${SONAR_TOKEN}:" "${gate_url}")"; then
+            echo "::error title=Sonar quality gate failed::Could not read quality-gate status."
+            exit 1
+          fi
+          gate_status="$(jq -r '.projectStatus.status // "UNKNOWN"' <<< "${gate_json}")"
+          if [[ "${gate_status}" != "OK" ]]; then
+            failed_conditions="$(jq -r '[.projectStatus.conditions[]? | select(.status != "OK") | "\(.metricKey)=\(.actualValue) (threshold \(.errorThreshold))"] | join(", ")' <<< "${gate_json}")"
+            echo "::error title=Sonar quality gate failed::Status ${gate_status}. ${failed_conditions}"
+            exit 1
+          fi
+          echo "Sonar quality gate passed for analysis ${analysis_id}."
       - name: Explain skipped Sonar analysis
         if: env.SONAR_TOKEN == ''
         run: echo "JaCoCo coverage generated; Sonar analysis skipped because SONAR_TOKEN is not configured."
