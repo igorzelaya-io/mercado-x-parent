@@ -232,7 +232,8 @@ jobs:
 
           analysis_id=""
           for attempt in {1..30}; do
-            if ! task_json="$(curl --fail --silent --show-error --user "${SONAR_TOKEN}:" "${ce_task_url}")"; then
+            if ! task_json="$(curl --fail --silent --show-error \
+                    --header "Authorization: Bearer ${SONAR_TOKEN}" "${ce_task_url}")"; then
               echo "::error title=Sonar analysis failed::Could not read Sonar background-task status."
               exit 1
             fi
@@ -257,7 +258,8 @@ jobs:
 
           server_url="$(awk -F= '$1 == "serverUrl" { print substr($0, index($0, "=") + 1) }' "${report_file}" | tr -d '\r')"
           gate_url="${server_url}/api/qualitygates/project_status?analysisId=${analysis_id}"
-          if ! gate_json="$(curl --fail --silent --show-error --user "${SONAR_TOKEN}:" "${gate_url}")"; then
+          if ! gate_json="$(curl --fail --silent --show-error \
+                  --header "Authorization: Bearer ${SONAR_TOKEN}" "${gate_url}")"; then
             echo "::error title=Sonar quality gate failed::Could not read quality-gate status."
             exit 1
           fi
