@@ -196,7 +196,9 @@ jobs:
           test
           org.jacoco:jacoco-maven-plugin:0.8.13:report
       - name: Upload coverage report
-        if: always()
+        # Parent/BOM repositories have no Java source and legitimately produce no JaCoCo report.
+        # Java projects still fail here if their expected report is missing.
+        if: ${{ always() && hashFiles('src/main/java/**/*.java') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-coverage-report
