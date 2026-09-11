@@ -56,9 +56,9 @@ jobs:
       - name: Skip validation outside release tags
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: echo "Immutable release validation only applies to v* tags."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         with:
           distribution: temurin
@@ -113,8 +113,8 @@ jobs:
     env:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -132,7 +132,7 @@ jobs:
           test
       - name: Upload unit-test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unit-test-reports
           path: target/surefire-reports/
@@ -146,8 +146,8 @@ jobs:
     env:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -165,7 +165,7 @@ jobs:
           test
       - name: Upload integration-test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-test-reports
           path: target/surefire-reports/
@@ -185,10 +185,10 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
       ANALYSIS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -208,7 +208,7 @@ jobs:
         # Parent/BOM repositories have no Java source and legitimately produce no JaCoCo report.
         # Java projects still fail here if their expected report is missing.
         if: ${{ always() && hashFiles('src/main/java/**/*.java') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jacoco-coverage-report
           path: target/site/jacoco/
@@ -292,8 +292,8 @@ jobs:
     env:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
