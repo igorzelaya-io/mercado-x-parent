@@ -93,7 +93,7 @@ jobs:
 
           mkdir -p target
           mvn -B -ntp -U dependency:list \
-            -DincludeGroupIds=hn.shadowcore \
+            -DincludeGroupIds=hn.alturaforge \
             -DoutputFile=target/internal-dependencies.txt \
             -DappendOutput=false
           if grep -q -- '-SNAPSHOT' target/internal-dependencies.txt; then

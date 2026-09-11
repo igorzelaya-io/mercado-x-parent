@@ -41,7 +41,7 @@ The shared workflow rejects the release unless all of these conditions hold:
 
 - the Maven project version is exactly `X.Y.Z` (without `-SNAPSHOT`);
 - the Maven parent version is not a snapshot; and
-- no resolved `hn.shadowcore` dependency is a snapshot.
+- no resolved `hn.alturaforge` dependency is a snapshot.
 
 Release libraries in dependency order: `mercado-x-parent`,
 `mercado-x-library-entity`, `mercado-x-redis`, `mercado-x-context`, then
@@ -67,11 +67,11 @@ The initial immutable release set is:
 
 | Maven coordinate | Version |
 | --- | --- |
-| `hn.shadowcore:mercado-x-parent` | `1.0.0` |
-| `hn.shadowcore:mercado-x-library-entity` | `1.0.0` |
-| `hn.shadowcore:mercado-x-redis` | `1.0.0` |
-| `hn.shadowcore:mercado-x-context` | `1.0.0` |
-| `hn.shadowcore:mercado-x-library-jpa` | `1.0.0` |
+| `hn.alturaforge:mercado-x-parent` | `1.0.0` |
+| `hn.alturaforge:mercado-x-library-entity` | `1.0.0` |
+| `hn.alturaforge:mercado-x-redis` | `1.0.0` |
+| `hn.alturaforge:mercado-x-context` | `1.0.0` |
+| `hn.alturaforge:mercado-x-library-jpa` | `1.0.0` |
 
 Publish each coordinate only once and in the dependency order above. After all
 five packages exist, microservice development builds may remain snapshots while
