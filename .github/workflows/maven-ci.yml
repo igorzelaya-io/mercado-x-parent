@@ -205,7 +205,7 @@ jobs:
           path: target/site/jacoco/
           if-no-files-found: error
       - name: Analyze with SonarQube
-        if: env.SONAR_TOKEN != ''
+        if: ${{ env.SONAR_TOKEN != '' && hashFiles('src/main/java/**/*.java') != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -237,7 +237,7 @@ jobs:
             exit "${scanner_status}"
           fi
       - name: Wait for SonarCloud quality gate
-        if: ${{ env.SONAR_TOKEN != '' && (env.SONAR_HOST_URL == '' || env.SONAR_HOST_URL == 'https://sonarcloud.io') }}
+        if: ${{ env.SONAR_TOKEN != '' && hashFiles('src/main/java/**/*.java') != '' && (env.SONAR_HOST_URL == '' || env.SONAR_HOST_URL == 'https://sonarcloud.io') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -269,8 +269,11 @@ jobs:
           echo "::error title=SonarCloud quality gate timed out::No completed SonarCloud check was available within 120 seconds."
           exit 1
       - name: Explain skipped Sonar analysis
-        if: env.SONAR_TOKEN == ''
+        if: ${{ env.SONAR_TOKEN == '' && hashFiles('src/main/java/**/*.java') != '' }}
         run: echo "JaCoCo coverage generated; Sonar analysis skipped because SONAR_TOKEN is not configured."
+      - name: Explain skipped code analysis for parent POM
+        if: ${{ hashFiles('src/main/java/**/*.java') == '' }}
+        run: echo "Coverage and Sonar analysis are not applicable because this repository has no Java sources."
 
   package:
     name: Package
