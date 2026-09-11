@@ -65,8 +65,8 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
       - name: Purge stale hn.shadowcore cache entries
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: rm -rf ~/.m2/repository/hn/shadowcore
@@ -120,8 +120,8 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
       - name: Purge stale hn.shadowcore cache entries
         run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Run unit tests
@@ -153,8 +153,8 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
       - name: Purge stale hn.shadowcore cache entries
         run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Run integration tests
@@ -194,8 +194,8 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
       - name: Purge stale hn.shadowcore cache entries
         run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Generate JaCoCo coverage report
@@ -299,8 +299,8 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
       - name: Purge stale hn.shadowcore cache entries
         run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Build package
