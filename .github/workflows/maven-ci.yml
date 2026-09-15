@@ -27,8 +27,8 @@ on:
       PACKAGES_TOKEN:
         required: false
       SONAR_TOKEN:
-        description: Token with Execute Analysis permission
-        required: false
+        description: Required token with Execute Analysis permission
+        required: true
   workflow_dispatch:
   pull_request:
   push:
@@ -44,6 +44,7 @@ permissions:
 
 env:
   JAVA_VERSION: '17'
+  MINIMUM_COVERAGE: '85.0'
 
 jobs:
   release-validation:
@@ -182,8 +183,6 @@ jobs:
       SONAR_HOST_URL: ${{ inputs.sonar_host_url || vars.SONAR_HOST_URL }}
       SONAR_ORGANIZATION: ${{ inputs.sonar_organization || vars.SONAR_ORGANIZATION }}
       SONAR_PROJECT_KEY: ${{ inputs.sonar_project_key || vars.SONAR_PROJECT_KEY }}
-      GITHUB_TOKEN: ${{ github.token }}
-      ANALYSIS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -204,6 +203,91 @@ jobs:
           org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent
           test
           org.jacoco:jacoco-maven-plugin:0.8.13:report
+      - name: Calculate authoritative coverage baseline
+        id: coverage
+        if: ${{ hashFiles('src/main/java/**/*.java') != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = Path("target/site/jacoco/jacoco.xml")
+          source_root = Path("src/main/java")
+          if not report.is_file():
+              raise SystemExit(f"Expected JaCoCo XML report was not found: {report}")
+
+          counters = {
+              "LINE": {"missed": 0, "covered": 0},
+              "BRANCH": {"missed": 0, "covered": 0},
+          }
+          source_files = 0
+          for package in ET.parse(report).getroot().findall("package"):
+              package_path = package.attrib["name"]
+              for source_file in package.findall("sourcefile"):
+                  maintained_source = source_root / package_path / source_file.attrib["name"]
+                  if not maintained_source.is_file():
+                      continue
+                  source_files += 1
+                  for counter in source_file.findall("counter"):
+                      counter_type = counter.attrib["type"]
+                      if counter_type in counters:
+                          counters[counter_type]["missed"] += int(counter.attrib["missed"])
+                          counters[counter_type]["covered"] += int(counter.attrib["covered"])
+
+          if source_files == 0:
+              raise SystemExit("JaCoCo did not report any maintained Java source files")
+
+          def percentage(counter):
+              total = counter["missed"] + counter["covered"]
+              return 100.0 if total == 0 else 100.0 * counter["covered"] / total
+
+          line_coverage = percentage(counters["LINE"])
+          branch_coverage = percentage(counters["BRANCH"])
+          covered = counters["LINE"]["covered"] + counters["BRANCH"]["covered"]
+          coverable = sum(value for counter in counters.values() for value in counter.values())
+          combined_coverage = 100.0 * covered / coverable if coverable else 100.0
+          threshold = float(os.environ["MINIMUM_COVERAGE"])
+          passed = combined_coverage >= threshold
+
+          baseline = {
+              "combinedCoverage": round(combined_coverage, 2),
+              "lineCoverage": round(line_coverage, 2),
+              "branchCoverage": round(branch_coverage, 2),
+              "minimumCoverage": threshold,
+              "passed": passed,
+              "maintainedSourceFiles": source_files,
+              "formula": "(covered lines + covered branches) / (executable lines + total branches)",
+          }
+          baseline_path = Path("target/site/jacoco/coverage-baseline.json")
+          baseline_path.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+
+          print(
+              f"Coverage baseline: {combined_coverage:.2f}% combined, "
+              f"{line_coverage:.2f}% line, {branch_coverage:.2f}% branch "
+              f"(required: {threshold:.2f}%)"
+          )
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"coverage={combined_coverage:.2f}\n")
+              output.write(f"line_coverage={line_coverage:.2f}\n")
+              output.write(f"branch_coverage={branch_coverage:.2f}\n")
+              output.write(f"passed={str(passed).lower()}\n")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("## Authoritative coverage baseline\n\n")
+              summary.write("| Metric | Result | Required |\n")
+              summary.write("| --- | ---: | ---: |\n")
+              summary.write(f"| Combined coverage | {combined_coverage:.2f}% | {threshold:.2f}% |\n")
+              summary.write(f"| Line coverage | {line_coverage:.2f}% | — |\n")
+              summary.write(f"| Branch coverage | {branch_coverage:.2f}% | — |\n")
+              summary.write(f"| Maintained source files | {source_files} | — |\n\n")
+              summary.write(
+                  "Combined coverage uses covered lines and branches from maintained files under "
+                  "`src/main/java`; generated sources are excluded.\n"
+              )
+          PY
       - name: Upload coverage report
         # Parent/BOM repositories have no Java source and legitimately produce no JaCoCo report.
         # Java projects still fail here if their expected report is missing.
@@ -214,14 +298,21 @@ jobs:
           path: target/site/jacoco/
           if-no-files-found: error
       - name: Analyze with SonarQube
-        if: ${{ env.SONAR_TOKEN != '' && hashFiles('src/main/java/**/*.java') != '' }}
+        if: ${{ hashFiles('src/main/java/**/*.java') != '' }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "${SONAR_TOKEN}" ]]; then
+            echo "::error title=Missing SONAR_TOKEN::Sonar analysis is mandatory for every Java repository. Configure the SONAR_TOKEN secret before running CI."
+            exit 1
+          fi
+
           project_key="${SONAR_PROJECT_KEY:-${GITHUB_REPOSITORY/\//_}}"
           sonar_args=(
             "-Dsonar.projectKey=${project_key}"
             "-Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml"
+            "-Dsonar.qualitygate.wait=true"
+            "-Dsonar.qualitygate.timeout=300"
           )
           if [[ -n "${SONAR_HOST_URL}" ]]; then
             sonar_args+=("-Dsonar.host.url=${SONAR_HOST_URL}")
@@ -229,12 +320,6 @@ jobs:
           if [[ -n "${SONAR_ORGANIZATION}" ]]; then
             sonar_args+=("-Dsonar.organization=${SONAR_ORGANIZATION}")
           fi
-          if [[ -n "${SONAR_HOST_URL}" && "${SONAR_HOST_URL}" != "https://sonarcloud.io" ]]; then
-            sonar_args+=("-Dsonar.qualitygate.wait=true")
-          else
-            sonar_args+=("-Dsonar.qualitygate.wait=false")
-          fi
-
           set +e
           mvn -B -ntp -U org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar \
             "${sonar_args[@]}" 2>&1 | tee target/sonar-scanner.log
@@ -245,41 +330,23 @@ jobs:
             echo "::error title=Sonar scanner failed::${scanner_error:-See the Analyze with SonarQube step log.}"
             exit "${scanner_status}"
           fi
-      - name: Wait for SonarCloud quality gate
-        if: ${{ env.SONAR_TOKEN != '' && hashFiles('src/main/java/**/*.java') != '' && (env.SONAR_HOST_URL == '' || env.SONAR_HOST_URL == 'https://sonarcloud.io') }}
+      - name: Enforce minimum coverage
+        if: ${{ always() && hashFiles('src/main/java/**/*.java') != '' }}
         shell: bash
+        env:
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
+          COVERAGE_PASSED: ${{ steps.coverage.outputs.passed }}
         run: |
           set -euo pipefail
-          checks_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${ANALYSIS_SHA}/check-runs?per_page=100"
-          for attempt in {1..60}; do
-            if ! checks_json="$(curl --fail --silent --show-error \
-                    --header "Authorization: Bearer ${GITHUB_TOKEN}" \
-                    --header "Accept: application/vnd.github+json" \
-                    --header "X-GitHub-Api-Version: 2022-11-28" \
-                    "${checks_url}")"; then
-              echo "::error title=SonarCloud quality gate failed::Could not read GitHub check status."
-              exit 1
-            fi
-
-            check_count="$(jq '[.check_runs[] | select(.name == "SonarCloud Code Analysis")] | length' <<< "${checks_json}")"
-            pending_count="$(jq '[.check_runs[] | select(.name == "SonarCloud Code Analysis" and .status != "completed")] | length' <<< "${checks_json}")"
-            if [[ "${check_count}" -gt 0 && "${pending_count}" -eq 0 ]]; then
-              failed_checks="$(jq '[.check_runs[] | select(.name == "SonarCloud Code Analysis" and .conclusion != "success")] | length' <<< "${checks_json}")"
-              if [[ "${failed_checks}" -eq 0 ]]; then
-                echo "SonarCloud quality gate passed for ${ANALYSIS_SHA}."
-                exit 0
-              fi
-              check_summary="$(jq -r '[.check_runs[] | select(.name == "SonarCloud Code Analysis") | "\(.conclusion): \(.output.title // "No details")"] | join(", ")' <<< "${checks_json}")"
-              echo "::error title=SonarCloud quality gate failed::${check_summary}"
-              exit 1
-            fi
-            sleep 2
-          done
-          echo "::error title=SonarCloud quality gate timed out::No completed SonarCloud check was available within 120 seconds."
-          exit 1
-      - name: Explain skipped Sonar analysis
-        if: ${{ env.SONAR_TOKEN == '' && hashFiles('src/main/java/**/*.java') != '' }}
-        run: echo "JaCoCo coverage generated; Sonar analysis skipped because SONAR_TOKEN is not configured."
+          if [[ -z "${COVERAGE}" || -z "${COVERAGE_PASSED}" ]]; then
+            echo "::error title=Coverage unavailable::The authoritative coverage baseline could not be calculated."
+            exit 1
+          fi
+          if [[ "${COVERAGE_PASSED}" != "true" ]]; then
+            echo "::error title=Coverage gate failed::Combined coverage is ${COVERAGE}%; at least ${MINIMUM_COVERAGE}% is required."
+            exit 1
+          fi
+          echo "Coverage gate passed: ${COVERAGE}% is at or above ${MINIMUM_COVERAGE}%."
       - name: Explain skipped code analysis for parent POM
         if: ${{ hashFiles('src/main/java/**/*.java') == '' }}
         run: echo "Coverage and Sonar analysis are not applicable because this repository has no Java sources."

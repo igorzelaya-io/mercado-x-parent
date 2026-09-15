@@ -35,7 +35,7 @@ The following modules compose the MercadoX ecosystem:
 - mercado-x-redis
 - mercado-x-oauth
 - mercado-x-core
-- mercado-x-email
+- mercado-x-messages
 - mercado-x-ai
 
 ---
@@ -69,7 +69,7 @@ graph TD
     subgraph Microservices
         oauth[mercado-x-oauth<br/><i>identity provider</i>]
         core[mercado-x-core<br/><i>orders, inventory, carts</i>]
-        email[mercado-x-email<br/><i>email, WhatsApp, webhooks</i>]
+        email[mercado-x-messages<br/><i>email, WhatsApp, webhooks</i>]
         ai[mercado-x-ai<br/><i>tenant-aware Claude conversations</i>]
     end
 
@@ -96,7 +96,7 @@ graph TD
     ai --> context
 ```
 
-`mercado-x-core` and `mercado-x-email` depend on `mercado-x-oauth` at compile time only for its JWT verification filter chain — neither calls it over the network at request time (see below).
+`mercado-x-core` and `mercado-x-messages` depend on `mercado-x-oauth` at compile time only for its JWT verification filter chain — neither calls it over the network at request time (see below).
 
 ### Runtime communication
 
@@ -170,7 +170,7 @@ sequenceDiagram
     autonumber
     participant Customer
     participant Meta as WhatsApp Cloud API
-    participant Email as mercado-x-email
+    participant Email as mercado-x-messages
     participant Kafka
     participant AI as mercado-x-ai
     participant Claude as Anthropic Claude
@@ -201,4 +201,4 @@ Business-facing capabilities include:
 
 The tool executor and full multi-account routing for every outbound AI reply remain production-readiness work. The shipped workflow already covers signed webhook ingestion, tenant resolution, Kafka choreography, persisted Claude conversations, quota enforcement, and reply delivery.
 
-For implementation details, see [`mercado-x-ai`](https://github.com/igorzelaya-io/mercado-x-ai) and [`mercado-x-email`](https://github.com/igorzelaya-io/mercado-x-email).
+For implementation details, see [`mercado-x-ai`](https://github.com/igorzelaya-io/mercado-x-ai) and [`mercado-x-messages`](https://github.com/igorzelaya-io/mercado-x-messages).
