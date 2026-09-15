@@ -27,8 +27,8 @@ on:
       PACKAGES_TOKEN:
         required: false
       SONAR_TOKEN:
-        description: Token with Execute Analysis permission
-        required: false
+        description: Required token with Execute Analysis permission
+        required: true
   workflow_dispatch:
   pull_request:
   push:
@@ -38,11 +38,13 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  checks: read
   contents: read
   packages: write
 
 env:
   JAVA_VERSION: '17'
+  MINIMUM_COVERAGE: '85.0'
 
 jobs:
   release-validation:
@@ -55,17 +57,20 @@ jobs:
       - name: Skip validation outside release tags
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: echo "Immutable release validation only applies to v* tags."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
+      - name: Purge stale hn.shadowcore cache entries
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Reject mutable or snapshot-based releases
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         shell: bash
@@ -92,7 +97,7 @@ jobs:
 
           mkdir -p target
           mvn -B -ntp -U dependency:list \
-            -DincludeGroupIds=hn.shadowcore \
+            -DincludeGroupIds=hn.alturaforge \
             -DoutputFile=target/internal-dependencies.txt \
             -DappendOutput=false
           if grep -q -- '-SNAPSHOT' target/internal-dependencies.txt; then
@@ -100,6 +105,21 @@ jobs:
             grep -- '-SNAPSHOT' target/internal-dependencies.txt
             exit 1
           fi
+
+  parent-contract:
+    name: Parent consumer contract
+    needs: release-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+      - name: Verify thin-parent dependency and compiler contracts
+        run: ./scripts/verify-parent-contract.sh
 
   unit-tests:
     name: Unit tests
@@ -109,15 +129,17 @@ jobs:
     env:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
+      - name: Purge stale hn.shadowcore cache entries
+        run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Run unit tests
         run: >-
           mvn -B -ntp -U
@@ -126,7 +148,7 @@ jobs:
           test
       - name: Upload unit-test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unit-test-reports
           path: target/surefire-reports/
@@ -140,15 +162,17 @@ jobs:
     env:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
+      - name: Purge stale hn.shadowcore cache entries
+        run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Run integration tests
         run: >-
           mvn -B -ntp -U
@@ -157,7 +181,7 @@ jobs:
           test
       - name: Upload integration-test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-test-reports
           path: target/surefire-reports/
@@ -175,39 +199,135 @@ jobs:
       SONAR_ORGANIZATION: ${{ inputs.sonar_organization || vars.SONAR_ORGANIZATION }}
       SONAR_PROJECT_KEY: ${{ inputs.sonar_project_key || vars.SONAR_PROJECT_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
+      - name: Purge stale hn.shadowcore cache entries
+        run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Generate JaCoCo coverage report
         run: >-
           mvn -B -ntp -U clean
           org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent
           test
           org.jacoco:jacoco-maven-plugin:0.8.13:report
+      - name: Calculate authoritative coverage baseline
+        id: coverage
+        if: ${{ hashFiles('src/main/java/**/*.java') != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = Path("target/site/jacoco/jacoco.xml")
+          source_root = Path("src/main/java")
+          if not report.is_file():
+              raise SystemExit(f"Expected JaCoCo XML report was not found: {report}")
+
+          counters = {
+              "LINE": {"missed": 0, "covered": 0},
+              "BRANCH": {"missed": 0, "covered": 0},
+          }
+          source_files = 0
+          for package in ET.parse(report).getroot().findall("package"):
+              package_path = package.attrib["name"]
+              for source_file in package.findall("sourcefile"):
+                  maintained_source = source_root / package_path / source_file.attrib["name"]
+                  if not maintained_source.is_file():
+                      continue
+                  source_files += 1
+                  for counter in source_file.findall("counter"):
+                      counter_type = counter.attrib["type"]
+                      if counter_type in counters:
+                          counters[counter_type]["missed"] += int(counter.attrib["missed"])
+                          counters[counter_type]["covered"] += int(counter.attrib["covered"])
+
+          if source_files == 0:
+              raise SystemExit("JaCoCo did not report any maintained Java source files")
+
+          def percentage(counter):
+              total = counter["missed"] + counter["covered"]
+              return 100.0 if total == 0 else 100.0 * counter["covered"] / total
+
+          line_coverage = percentage(counters["LINE"])
+          branch_coverage = percentage(counters["BRANCH"])
+          covered = counters["LINE"]["covered"] + counters["BRANCH"]["covered"]
+          coverable = sum(value for counter in counters.values() for value in counter.values())
+          combined_coverage = 100.0 * covered / coverable if coverable else 100.0
+          threshold = float(os.environ["MINIMUM_COVERAGE"])
+          passed = combined_coverage >= threshold
+
+          baseline = {
+              "combinedCoverage": round(combined_coverage, 2),
+              "lineCoverage": round(line_coverage, 2),
+              "branchCoverage": round(branch_coverage, 2),
+              "minimumCoverage": threshold,
+              "passed": passed,
+              "maintainedSourceFiles": source_files,
+              "formula": "(covered lines + covered branches) / (executable lines + total branches)",
+          }
+          baseline_path = Path("target/site/jacoco/coverage-baseline.json")
+          baseline_path.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+
+          print(
+              f"Coverage baseline: {combined_coverage:.2f}% combined, "
+              f"{line_coverage:.2f}% line, {branch_coverage:.2f}% branch "
+              f"(required: {threshold:.2f}%)"
+          )
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"coverage={combined_coverage:.2f}\n")
+              output.write(f"line_coverage={line_coverage:.2f}\n")
+              output.write(f"branch_coverage={branch_coverage:.2f}\n")
+              output.write(f"passed={str(passed).lower()}\n")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("## Authoritative coverage baseline\n\n")
+              summary.write("| Metric | Result | Required |\n")
+              summary.write("| --- | ---: | ---: |\n")
+              summary.write(f"| Combined coverage | {combined_coverage:.2f}% | {threshold:.2f}% |\n")
+              summary.write(f"| Line coverage | {line_coverage:.2f}% | — |\n")
+              summary.write(f"| Branch coverage | {branch_coverage:.2f}% | — |\n")
+              summary.write(f"| Maintained source files | {source_files} | — |\n\n")
+              summary.write(
+                  "Combined coverage uses covered lines and branches from maintained files under "
+                  "`src/main/java`; generated sources are excluded.\n"
+              )
+          PY
       - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
+        # Parent/BOM repositories have no Java source and legitimately produce no JaCoCo report.
+        # Java projects still fail here if their expected report is missing.
+        if: ${{ always() && hashFiles('src/main/java/**/*.java') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jacoco-coverage-report
           path: target/site/jacoco/
           if-no-files-found: error
       - name: Analyze with SonarQube
-        if: env.SONAR_TOKEN != ''
+        if: ${{ hashFiles('src/main/java/**/*.java') != '' }}
         shell: bash
         run: |
+          set -euo pipefail
+          if [[ -z "${SONAR_TOKEN}" ]]; then
+            echo "::error title=Missing SONAR_TOKEN::Sonar analysis is mandatory for every Java repository. Configure the SONAR_TOKEN secret before running CI."
+            exit 1
+          fi
+
           project_key="${SONAR_PROJECT_KEY:-${GITHUB_REPOSITORY/\//_}}"
           sonar_args=(
             "-Dsonar.projectKey=${project_key}"
             "-Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml"
             "-Dsonar.qualitygate.wait=true"
+            "-Dsonar.qualitygate.timeout=300"
           )
           if [[ -n "${SONAR_HOST_URL}" ]]; then
             sonar_args+=("-Dsonar.host.url=${SONAR_HOST_URL}")
@@ -215,28 +335,56 @@ jobs:
           if [[ -n "${SONAR_ORGANIZATION}" ]]; then
             sonar_args+=("-Dsonar.organization=${SONAR_ORGANIZATION}")
           fi
-          mvn -B -ntp -U org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar "${sonar_args[@]}"
-      - name: Explain skipped Sonar analysis
-        if: env.SONAR_TOKEN == ''
-        run: echo "JaCoCo coverage generated; Sonar analysis skipped because SONAR_TOKEN is not configured."
+          set +e
+          mvn -B -ntp -U org.sonarsource.scanner.maven:sonar-maven-plugin:5.5.0.6356:sonar \
+            "${sonar_args[@]}" 2>&1 | tee target/sonar-scanner.log
+          scanner_status="${PIPESTATUS[0]}"
+          set -e
+          if [[ "${scanner_status}" -ne 0 ]]; then
+            scanner_error="$(grep -E '^\[ERROR\]|^ERROR ' target/sonar-scanner.log | tail -1 || true)"
+            echo "::error title=Sonar scanner failed::${scanner_error:-See the Analyze with SonarQube step log.}"
+            exit "${scanner_status}"
+          fi
+      - name: Enforce minimum coverage
+        if: ${{ always() && hashFiles('src/main/java/**/*.java') != '' }}
+        shell: bash
+        env:
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
+          COVERAGE_PASSED: ${{ steps.coverage.outputs.passed }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${COVERAGE}" || -z "${COVERAGE_PASSED}" ]]; then
+            echo "::error title=Coverage unavailable::The authoritative coverage baseline could not be calculated."
+            exit 1
+          fi
+          if [[ "${COVERAGE_PASSED}" != "true" ]]; then
+            echo "::error title=Coverage gate failed::Combined coverage is ${COVERAGE}%; at least ${MINIMUM_COVERAGE}% is required."
+            exit 1
+          fi
+          echo "Coverage gate passed: ${COVERAGE}% is at or above ${MINIMUM_COVERAGE}%."
+      - name: Explain skipped code analysis for parent POM
+        if: ${{ hashFiles('src/main/java/**/*.java') == '' }}
+        run: echo "Coverage and Sonar analysis are not applicable because this repository has no Java sources."
 
   package:
     name: Package
-    needs: [unit-tests, integration-tests, quality]
+    needs: [unit-tests, integration-tests, quality, parent-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN || github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: PACKAGES_TOKEN
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: PACKAGES_TOKEN
+      - name: Purge stale hn.shadowcore cache entries
+        run: rm -rf ~/.m2/repository/hn/shadowcore
       - name: Build package
         run: mvn -B -ntp -U package -DskipTests
       - name: Publish Maven artifact

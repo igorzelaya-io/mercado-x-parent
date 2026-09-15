@@ -1,5 +1,11 @@
 # MercadoX Parent
 
+[![Maven CI](https://github.com/igorzelaya-io/mercado-x-parent/actions/workflows/maven-ci.yml/badge.svg?branch=develop)](https://github.com/igorzelaya-io/mercado-x-parent/actions/workflows/maven-ci.yml)
+
+The fastest reviewer path is: [ecosystem architecture](#ecosystem-architecture) →
+[parent contract](#parent-20-contract) → [verification](#build-and-verify) →
+[service repositories](#ecosystem-repositories).
+
 ## Overview
 
 `mercado-x-parent` is the root Maven parent project for the MercadoX ecosystem.
@@ -9,8 +15,8 @@ Its sole responsibility is to:
 - Provide a centralized `pom.xml`
 - Manage dependency versions
 - Define shared plugins and configurations
-- Declare the ecosystem modules
 - Enforce consistent build standards
+- Verify the contract inherited by consumer repositories
 
 This project does **not** contain application code.
 
@@ -21,13 +27,13 @@ This project does **not** contain application code.
 - Dependency Management (Spring Boot, Hibernate, QueryDSL, Kafka, etc.)
 - Plugin Management (Maven Compiler, Surefire, Failsafe, etc.)
 - Shared properties (Java version, encoding, etc.)
-- Module aggregation
+- Consumer contract testing
 
 ---
 
-## Modules
+## Ecosystem Repositories
 
-The following modules compose the MercadoX ecosystem:
+The following independently built repositories compose the MercadoX ecosystem:
 
 - mercado-x-library-entity
 - mercado-x-library-jpa
@@ -35,8 +41,57 @@ The following modules compose the MercadoX ecosystem:
 - mercado-x-redis
 - mercado-x-oauth
 - mercado-x-core
-- mercado-x-email
+- mercado-x-messages
 - mercado-x-ai
+
+---
+
+## Parent 2.0 Contract
+
+Version 2 makes the parent deliberately **thin**: it manages compatible
+versions and compiler policy, but it does not inject application frameworks into
+every child. Each service explicitly declares the capabilities it owns—JPA,
+Redis, WebFlux, mail, security, or Testcontainers—so its dependency graph is
+reviewable from its own `pom.xml`.
+
+Use the parent from a MercadoX repository:
+
+```xml
+<parent>
+  <groupId>hn.alturaforge</groupId>
+  <artifactId>mercado-x-parent</artifactId>
+  <version>2.0.0-SNAPSHOT</version>
+</parent>
+```
+
+Managed libraries such as MapStruct can then be declared without repeating a
+version:
+
+```xml
+<dependency>
+  <groupId>org.mapstruct</groupId>
+  <artifactId>mapstruct</artifactId>
+</dependency>
+```
+
+### Migrating from 1.x
+
+Parent 1.x inherited a shared application stack into every consumer. Before a
+service adopts 2.x, add every dependency it actually uses to that service's own
+POM. Consumers remain safe on `1.0.0` until they deliberately migrate; the
+`2.0.0-SNAPSHOT` line exists so those migrations can be tested without changing
+the immutable 1.x release.
+
+### Build and Verify
+
+```bash
+mvn -B -ntp clean verify
+./scripts/verify-parent-contract.sh
+```
+
+The contract fixture compiles a minimal MapStruct consumer, checks that its
+managed version resolves, and fails if the parent leaks any undeclared
+application dependency into the child.
 
 ---
 
@@ -69,7 +124,7 @@ graph TD
     subgraph Microservices
         oauth[mercado-x-oauth<br/><i>identity provider</i>]
         core[mercado-x-core<br/><i>orders, inventory, carts</i>]
-        email[mercado-x-email<br/><i>email, WhatsApp, webhooks</i>]
+        email[mercado-x-messages<br/><i>email, WhatsApp, webhooks</i>]
         ai[mercado-x-ai<br/><i>tenant-aware Claude conversations</i>]
     end
 
@@ -96,7 +151,7 @@ graph TD
     ai --> context
 ```
 
-`mercado-x-core` and `mercado-x-email` depend on `mercado-x-oauth` at compile time only for its JWT verification filter chain — neither calls it over the network at request time (see below).
+`mercado-x-core` and `mercado-x-messages` depend on `mercado-x-oauth` at compile time only for its JWT verification filter chain — neither calls it over the network at request time (see below).
 
 ### Runtime communication
 
@@ -170,7 +225,7 @@ sequenceDiagram
     autonumber
     participant Customer
     participant Meta as WhatsApp Cloud API
-    participant Email as mercado-x-email
+    participant Email as mercado-x-messages
     participant Kafka
     participant AI as mercado-x-ai
     participant Claude as Anthropic Claude
@@ -201,4 +256,7 @@ Business-facing capabilities include:
 
 The tool executor and full multi-account routing for every outbound AI reply remain production-readiness work. The shipped workflow already covers signed webhook ingestion, tenant resolution, Kafka choreography, persisted Claude conversations, quota enforcement, and reply delivery.
 
-For implementation details, see [`mercado-x-ai`](https://github.com/igorzelaya-io/mercado-x-ai) and [`mercado-x-email`](https://github.com/igorzelaya-io/mercado-x-email).
+For the public transport implementation, see
+[`mercado-x-messages`](https://github.com/igorzelaya-io/mercado-x-messages).
+The AI service boundary and event contract are documented here while its
+implementation repository remains private.

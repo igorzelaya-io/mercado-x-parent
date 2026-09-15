@@ -11,7 +11,7 @@ variables → Actions**.
 | Name | Purpose | Notes |
 | --- | --- | --- |
 | `PACKAGES_TOKEN` | Read and publish MercadoX Maven packages | GitHub PAT with `read:packages` and `write:packages`; the workflow falls back to its temporary `GITHUB_TOKEN` when possible. |
-| `SONAR_TOKEN` | Submit analysis to SonarQube | Generate in SonarQube with Execute Analysis permission. Never store it in a POM or workflow file. |
+| `SONAR_TOKEN` | Submit mandatory analysis to SonarQube | Required for every repository containing Java source. Generate it in SonarQube with Execute Analysis permission. Never store it in a POM or workflow file. |
 
 GitHub injects `GITHUB_TOKEN`, `GITHUB_ACTOR`, and `GITHUB_REPOSITORY` for every
 workflow run. They do not need to be created manually.
@@ -24,10 +24,17 @@ workflow run. They do not need to be created manually.
 | `SONAR_ORGANIZATION` | SonarQube Cloud organization key | Cloud only. |
 | `SONAR_PROJECT_KEY` | Project key for the repository | Optional; defaults to `owner_repository`. Set per repository if the project uses another key. |
 
-When `SONAR_TOKEN` is absent, CI still runs the tests, generates JaCoCo XML/HTML,
-and uploads the coverage artifact. Only the remote Sonar analysis is skipped.
-When it is present, packaging waits for the Sonar quality gate and fails if that
-gate fails.
+For every repository containing Java source, `SONAR_TOKEN` is mandatory. CI fails
+when it is absent; Sonar analysis can no longer be skipped. Packaging waits for
+the Sonar quality gate and fails if that gate fails.
+
+The quality job also enforces a non-configurable minimum of **85% combined
+coverage** before packaging. Combined coverage is calculated as covered lines
+plus covered branches divided by executable lines plus total branches. Only
+maintained files under `src/main/java` are counted, so generated QueryDSL,
+MapStruct, and Avro sources do not distort the result. Every run writes the
+combined, line, and branch baselines to the GitHub Actions job summary and to
+`coverage-baseline.json` in the JaCoCo artifact.
 
 Successful pushes to `develop`, `main`, or `master` publish Maven `SNAPSHOT`
 artifacts. Downstream builds use Maven's `-U` flag so they refresh those
@@ -41,7 +48,7 @@ The shared workflow rejects the release unless all of these conditions hold:
 
 - the Maven project version is exactly `X.Y.Z` (without `-SNAPSHOT`);
 - the Maven parent version is not a snapshot; and
-- no resolved `hn.shadowcore` dependency is a snapshot.
+- no resolved `hn.alturaforge` dependency is a snapshot.
 
 Release libraries in dependency order: `mercado-x-parent`,
 `mercado-x-library-entity`, `mercado-x-redis`, `mercado-x-context`, then
@@ -67,11 +74,11 @@ The initial immutable release set is:
 
 | Maven coordinate | Version |
 | --- | --- |
-| `hn.shadowcore:mercado-x-parent` | `1.0.0` |
-| `hn.shadowcore:mercado-x-library-entity` | `1.0.0` |
-| `hn.shadowcore:mercado-x-redis` | `1.0.0` |
-| `hn.shadowcore:mercado-x-context` | `1.0.0` |
-| `hn.shadowcore:mercado-x-library-jpa` | `1.0.0` |
+| `hn.alturaforge:mercado-x-parent` | `1.0.0` |
+| `hn.alturaforge:mercado-x-library-entity` | `1.0.0` |
+| `hn.alturaforge:mercado-x-redis` | `1.0.0` |
+| `hn.alturaforge:mercado-x-context` | `1.0.0` |
+| `hn.alturaforge:mercado-x-library-jpa` | `1.0.0` |
 
 Publish each coordinate only once and in the dependency order above. After all
 five packages exist, microservice development builds may remain snapshots while

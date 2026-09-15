@@ -2,12 +2,20 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 
   <modelVersion>4.0.0</modelVersion>
-  <groupId>hn.shadowcore</groupId>
+  <groupId>hn.alturaforge</groupId>
   <artifactId>mercado-x-parent</artifactId>
-  <version>1.0.0</version>
-  <name>Archetype - mercado-x-parent</name>
+  <version>2.0.0-SNAPSHOT</version>
+  <name>MercadoX Parent</name>
+  <description>Shared dependency and build policy for the MercadoX service ecosystem</description>
   <packaging>pom</packaging>
-  <url>http://maven.apache.org</url>
+  <url>https://github.com/igorzelaya-io/mercado-x-parent</url>
+
+  <scm>
+    <connection>scm:git:https://github.com/igorzelaya-io/mercado-x-parent.git</connection>
+    <developerConnection>scm:git:git@github.com:igorzelaya-io/mercado-x-parent.git</developerConnection>
+    <url>https://github.com/igorzelaya-io/mercado-x-parent</url>
+    <tag>HEAD</tag>
+  </scm>
 
   <parent>
     <groupId>org.springframework.boot</groupId>
@@ -17,9 +25,8 @@
 
   <properties>
     <java.version>17</java.version>
-    <lombok.version>1.18.32</lombok.version>
     <mapstruct-version>1.6.3</mapstruct-version>
-    <testcontainers.version>1.20.6</testcontainers.version>
+    <querydsl.version>5.1.0</querydsl.version>
   </properties>
 
   <distributionManagement>
@@ -33,172 +40,25 @@
     <dependencies>
 
       <dependency>
-        <groupId>org.projectlombok</groupId>
-        <artifactId>lombok</artifactId>
-        <version>${lombok.version}</version>
-      </dependency>
-
-      <dependency>
         <groupId>org.mapstruct</groupId>
         <artifactId>mapstruct</artifactId>
         <version>${mapstruct-version}</version>
       </dependency>
 
-
-      <dependency>
-        <groupId>jakarta.persistence</groupId>
-        <artifactId>jakarta.persistence-api</artifactId>
-        <version>3.1.0</version>
-      </dependency>
-
-      <dependency>
-        <groupId>org.hibernate.orm</groupId>
-        <artifactId>hibernate-core</artifactId>
-        <version>6.3.1.Final</version>
-      </dependency>
-
       <dependency>
         <groupId>com.querydsl</groupId>
         <artifactId>querydsl-jpa</artifactId>
-        <version>5.1.0</version>
+        <version>${querydsl.version}</version>
       </dependency>
 
       <dependency>
         <groupId>com.querydsl</groupId>
         <artifactId>querydsl-core</artifactId>
-        <version>5.1.0</version>
-      </dependency>
-
-      <dependency>
-        <groupId>com.h2database</groupId>
-        <artifactId>h2</artifactId>
-        <version>2.2.224</version>
-        <scope>test</scope>
-      </dependency>
-
-      <dependency>
-        <groupId>org.testcontainers</groupId>
-        <artifactId>testcontainers</artifactId>
-        <version>${testcontainers.version}</version>
-        <scope>test</scope>
-      </dependency>
-
-      <dependency>
-        <groupId>org.testcontainers</groupId>
-        <artifactId>junit-jupiter</artifactId>
-        <version>${testcontainers.version}</version>
-        <scope>test</scope>
-      </dependency>
-
-      <dependency>
-        <groupId>org.testcontainers</groupId>
-        <artifactId>postgresql</artifactId>
-        <version>${testcontainers.version}</version>
-        <scope>test</scope>
+        <version>${querydsl.version}</version>
       </dependency>
 
     </dependencies>
   </dependencyManagement>
-
-  <dependencies>
-
-    <dependency>
-      <groupId>org.projectlombok</groupId>
-      <artifactId>lombok</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>postgresql</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-thymeleaf</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-data-jpa</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-aop</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>jakarta.persistence</groupId>
-      <artifactId>jakarta.persistence-api</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.hibernate.orm</groupId>
-      <artifactId>hibernate-core</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>com.querydsl</groupId>
-      <artifactId>querydsl-jpa</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>com.querydsl</groupId>
-      <artifactId>querydsl-core</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-api</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.security</groupId>
-      <artifactId>spring-security-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-mail</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-data-redis</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-webflux</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>com.h2database</groupId>
-      <artifactId>h2</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-  </dependencies>
 
   <build>
     <pluginManagement>
@@ -225,8 +85,7 @@
                 <version>0.2.0</version>
               </path>
             </annotationProcessorPaths>
-            <source>${java.version}</source>
-            <target>${java.version}</target>
+            <release>${java.version}</release>
           </configuration>
         </plugin>
       </plugins>
